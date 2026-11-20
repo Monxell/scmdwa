@@ -1,4 +1,6 @@
 import { smsg } from './lib/simple.js';
+import databaseInit from './lib/database.js';
+import printMessage from './lib/print.js';
 import { format } from 'util';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -12,21 +14,39 @@ import chalk from 'chalk';
 export async function handler(chatUpdate) {
 	if (!chatUpdate) return;
 	this.pushMessage(chatUpdate.messages).catch(console.error);
-	let m = chatUpdate.messages[chatUpdate.messages.length - 1];
-	if (!m) return;
 	if (global.db.data == null) await global.loadDatabase();
+
+	// proses semua pesan dalam batch (bukan hanya yang terakhir)
+	for (const rawMsg of chatUpdate.messages) {
+		try {
+			await processMessage.call(this, rawMsg, chatUpdate);
+		} catch (e) {
+			console.error('Error processing message:', e);
+		}
+	}
+}
+
+async function processMessage(rawMsg, chatUpdate) {
+	let m = rawMsg;
+	if (!m) return;
 	try {
 		m = smsg(this, m) || m;
 		if (!m) return;
+		if (Math.floor(Date.now() / 1000) - m.messageTimestamp > 20) return console.log('Pesan terlalu lama, skip');
 		m.exp = 0;
 		m.limit = false;
 
 		if (m.sender.endsWith('@broadcast') || m.sender.endsWith('@newsletter')) return;
-		await (await import(`./lib/database.js?v=${Date.now()}`)).default(m, this);
+		await databaseInit(m, this);
 
 		if (typeof m.text !== 'string') m.text = '';
 
-		const isROwner = [conn.decodeJid(global.conn.user.id), ...global.owner.map(([number]) => number)].map((v) => v.replace(/[^0-9]/g, '') + '@s.whatsapp.net').includes(m.sender);
+		const isROwner = (() => {
+			if (!process._ownerJids) {
+				process._ownerJids = [conn.decodeJid(global.conn.user.id), ...global.owner.map(([number]) => number)].map((v) => v.replace(/[^0-9]/g, '') + '@s.whatsapp.net');
+			}
+			return process._ownerJids.includes(m.sender);
+		})();
 		const isOwner = isROwner || m.fromMe;
 		const isPrems = isROwner || db.data.users[m.sender]?.premiumTime > 0;
 
@@ -37,7 +57,7 @@ export async function handler(chatUpdate) {
 		m.exp += Math.ceil(Math.random() * 10);
 
 		let usedPrefix;
-		let _user = global.db.data && global.db.data.users && global.db.data.users[m.sender];
+		const _user = global.db.data && global.db.data.users && global.db.data.users[m.sender];
 
 		const groupMetadata = (m.isGroup ? (conn.chats[m.chat] || {}).metadata || (await this.groupMetadata(m.chat).catch((_) => null)) : {}) || {};
 		const participants = (m.isGroup ? groupMetadata.participants : []) || [];
@@ -48,8 +68,10 @@ export async function handler(chatUpdate) {
 		const isBotAdmin = bot?.admin || false; // Are you Admin?
 
 		const ___dirname = path.join(path.dirname(fileURLToPath(import.meta.url)), './plugins');
-		for (let name in global.plugins) {
-			let plugin = global.plugins[name];
+		const str2Regex = (str) => str.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&');
+		const defaultPrefix = conn.prefix ? conn.prefix : global.prefix;
+		for (const name in global.plugins) {
+			const plugin = global.plugins[name];
 			if (!plugin) continue;
 			if (plugin.disabled) continue;
 			const __filename = path.join(___dirname, name);
@@ -63,24 +85,19 @@ export async function handler(chatUpdate) {
 				} catch (e) {
 					// if (typeof e === 'string') continue
 					console.error(e);
-					for (let [jid] of global.owner.filter(([number, _, isDeveloper]) => isDeveloper && number)) {
-						let data = (await conn.onWhatsApp(jid))[0] || {};
+					for (const [jid] of global.owner.filter(([number, _, isDeveloper]) => isDeveloper && number)) {
+						const data = (await conn.onWhatsApp(jid))[0] || {};
 						if (data.exists) m.reply(`*Plugin:* ${name}\n*Sender:* ${m.sender}\n*Chat:* ${m.chat}\n*Command:* ${m.text}\n\n\`\`\`${format(e)}\`\`\``.trim(), data.jid);
 					}
 				}
 			}
-			if (plugin.tags && plugin.tags.includes('admin')) {
-				// global.dfail('restrict', m, this)
-				continue;
-			}
-			const str2Regex = (str) => str.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&');
-			let _prefix = plugin.customPrefix ? plugin.customPrefix : conn.prefix ? conn.prefix : global.prefix;
-			let match = (
+			const _prefix = plugin.customPrefix ? plugin.customPrefix : defaultPrefix;
+			const match = (
 				_prefix instanceof RegExp // RegExp Mode?
 					? [[_prefix.exec(m.text), _prefix]]
 					: Array.isArray(_prefix) // Array?
 						? _prefix.map((p) => {
-								let re =
+								const re =
 									p instanceof RegExp // RegExp in Array?
 										? p
 										: new RegExp(str2Regex(p));
@@ -114,14 +131,14 @@ export async function handler(chatUpdate) {
 			}
 			if (typeof plugin !== 'function') continue;
 			if ((usedPrefix = (match[0] || '')[0])) {
-				let noPrefix = m.text.replace(usedPrefix, '');
+				const noPrefix = m.text.replace(usedPrefix, '');
 				let [command, ...args] = noPrefix.trim().split` `.filter((v) => v);
 				args = args || [];
-				let _args = noPrefix.trim().split` `.slice(1);
-				let text = _args.join` `;
+				const _args = noPrefix.trim().split` `.slice(1);
+				const text = _args.join` `;
 				command = (command || '').toLowerCase();
-				let fail = plugin.fail || global.dfail; // When failed
-				let isAccept =
+				const fail = plugin.fail || global.dfail; // When failed
+				const isAccept =
 					plugin.command instanceof RegExp // RegExp Mode?
 						? plugin.command.test(command)
 						: Array.isArray(plugin.command) // Array?
@@ -137,8 +154,8 @@ export async function handler(chatUpdate) {
 				if (!isAccept) continue;
 				m.plugin = name;
 				if (!isOwner && (m.chat in global.db.data.chats || m.sender in global.db.data.users)) {
-					let chat = global.db.data.chats[m.chat];
-					if (name != 'tools-delete.js' && chat?.isBanned) return; // Except this
+					const chat = global.db.data.chats[m.chat];
+					if (chat?.isBanned) continue;
 				}
 				if (plugin.rowner && plugin.owner && !(isROwner || isOwner)) {
 					// Both Owner
@@ -184,7 +201,7 @@ export async function handler(chatUpdate) {
 					continue;
 				}
 				m.isCommand = true;
-				let xp = 'exp' in plugin ? parseInt(plugin.exp) : 17; // XP Earning per command
+				const xp = 'exp' in plugin ? parseInt(plugin.exp) : 17; // XP Earning per command
 				if (xp > 200)
 					m.reply('Ngecit -_-'); // Hehehe
 				else m.exp += xp;
@@ -192,11 +209,11 @@ export async function handler(chatUpdate) {
 					this.reply(m.chat, `[❗] Limit anda habis, silahkan beli melalui *${usedPrefix}buy limit*`, m);
 					continue; // Limit habis
 				}
-				if (plugin.level > _user.level) {
+				if (plugin.level > _user?.level) {
 					this.reply(m.chat, `[💬] Diperlukan level ${plugin.level} untuk menggunakan perintah ini\n*Level mu:* ${_user.level} 📊`, m);
 					continue; // If the level has not been reached
 				}
-				let extra = {
+				const extra = {
 					match,
 					usedPrefix,
 					noPrefix,
@@ -227,10 +244,10 @@ export async function handler(chatUpdate) {
 					m.error = e;
 					console.error(e);
 					if (e) {
-						let text = format(e);
+						const text = format(e);
 						if (e.name)
-							for (let [jid] of global.owner.filter(([number, _, isDeveloper]) => isDeveloper && number)) {
-								let data = (await conn.onWhatsApp(jid))[0] || {};
+							for (const [jid] of global.owner.filter(([number, _, isDeveloper]) => isDeveloper && number)) {
+								const data = (await conn.onWhatsApp(jid))[0] || {};
 								if (data.exists)
 									m.reply(
 										`*🗂️ Plugin:* ${m.plugin}\n*👤 Sender:* ${m.sender}\n*💬 Chat:* ${m.chat}\n*💻 Command:* ${usedPrefix}${command} ${args.join(' ')}\n📄 *Error Logs:*\n\n\`\`\`${text}\`\`\``.trim(),
@@ -286,7 +303,7 @@ export async function handler(chatUpdate) {
 		}
 
 		try {
-			await (await import(`./lib/print.js`)).default(m, this);
+			await printMessage(m, this);
 		} catch (e) {
 			console.log(m, m.quoted, e);
 		}
@@ -301,8 +318,8 @@ export async function handler(chatUpdate) {
 export async function participantsUpdate({ id, participants, action, simulate = false }) {
 	// if (id in conn.chats) return // First login will spam
 	if (this.isInit && !simulate) return;
-	if (global.db.data == null) await loadDatabase();
-	let chat = global.db.data.chats[id] || {};
+	if (global.db.data == null) await global.loadDatabase();
+	const chat = global.db.data.chats[id] || {};
 	let text = '';
 	const groupMetadata = (conn.chats[id] || {}).metadata || (await this.groupMetadata(id));
 	switch (action) {
@@ -322,8 +339,8 @@ export async function participantsUpdate({ id, participants, action, simulate = 
 			break;
 		case 'promote':
 		case 'demote':
-			for (let users of participants) {
-				let user = this.getJid(users?.phoneNumber || users.id);
+			for (const users of participants) {
+				const user = this.getJid(users?.phoneNumber || users.id);
 				text = (
 					action === 'promote'
 						? chat.sPromote || this.spromote || conn.spromote || '@user ```is now Admin```'
@@ -361,9 +378,9 @@ export async function deleteUpdate(message) {
 	try {
 		const { fromMe, id, participant } = message;
 		if (fromMe) return;
-		let msg = this.serializeM(this.loadMessage(id));
+		const msg = this.serializeM(this.loadMessage(id));
 		if (!msg) return;
-		let chat = global.db.data.chats[msg.chat];
+		const chat = global.db.data.chats[msg.chat];
 		if (!chat.delete) return;
 		await this.reply(
 			msg.chat,
@@ -384,7 +401,7 @@ Untuk mematikan fitur ini, ketik
 }
 
 global.dfail = (type, m, conn) => {
-	let msg = {
+	const msg = {
 		rowner: 'Only Developer - Command ini hanya untuk developer bot',
 		owner: 'Only Owner - Command ini hanya untuk owner bot',
 		premium: 'Only Premium - Command ini hanya untuk pengguna premium',
@@ -398,9 +415,26 @@ global.dfail = (type, m, conn) => {
 	if (msg) return conn.reply(m.chat, msg, m);
 };
 
-let file = global.__filename(import.meta.url, true);
+const file = global.__filename(import.meta.url, true);
 watchFile(file, async () => {
 	unwatchFile(file);
 	console.log(chalk.redBright("Update 'handler.js'"));
 	if (global.reloadHandler) console.log(await global.reloadHandler());
 });
+
+// hot-reload database.js & print.js saat file berubah (bukan di setiap pesan masuk)
+for (const libName of ['database', 'print']) {
+	const libPath = path.resolve(path.dirname(file), './lib/' + libName + '.js');
+	const watchLib = () => {
+		watchFile(libPath, async () => {
+			try {
+				await import('./lib/' + libName + '.js?update=' + Date.now());
+				console.log(chalk.yellowBright('Reloaded lib/' + libName + '.js'));
+			} catch (e) {
+				console.error(e);
+			}
+			setTimeout(watchLib, 1000);
+		});
+	};
+	watchLib();
+}

@@ -3,9 +3,9 @@ import { proto, generateWAMessage, areJidsSameUser } from 'baileys';
 export async function all(m, chatUpdate) {
 	if (m.isBaileys) return;
 	if (!m.message) return;
-	if (!(m.message.buttonsResponseMessage || m.message.templateButtonReplyMessage || m.message.listResponseMessage || m.message.interactiveResponseMessage || m.message.pollUpdateMessage)) return;
+	if (!(m.message.buttonsResponseMessage || m.message.templateButtonReplyMessage || m.message.listResponseMessage || m.message.interactiveResponseMessage)) return;
 
-	let id =
+	const id =
 		m.mtype === 'conversation'
 			? m.message.conversation
 			: m.mtype == 'imageMessage'
@@ -21,14 +21,18 @@ export async function all(m, chatUpdate) {
 								: m.mtype == 'templateButtonReplyMessage'
 									? m.message.templateButtonReplyMessage.selectedId
 									: m.mtype == 'interactiveResponseMessage'
-										? JSON.parse(m.msg.nativeFlowResponseMessage.paramsJson).id
-										: m.mtype == 'templateButtonReplyMessage'
-											? appenTextMessage(m.msg.selectedId, chatUpdate)
-											: m.mtype === 'messageContextInfo'
-												? m.message.buttonsResponseMessage?.selectedButtonId || m.message.listResponseMessage?.singleSelectReply.selectedRowId || m.text
-												: '';
+										? (() => {
+												try {
+													return JSON.parse(m.msg.nativeFlowResponseMessage.paramsJson).id;
+												} catch {
+													return '';
+												}
+											})()
+										: m.mtype === 'messageContextInfo'
+											? m.message.buttonsResponseMessage?.selectedButtonId || m.message.listResponseMessage?.singleSelectReply.selectedRowId || m.text
+											: '';
 
-	let messages = await generateWAMessage(
+	const messages = await generateWAMessage(
 		m.chat,
 		{ text: id, mentions: m.mentionedJid },
 		{
@@ -41,7 +45,7 @@ export async function all(m, chatUpdate) {
 	messages.key.id = m.key.id;
 	messages.pushName = m.pushName;
 	if (m.isGroup) messages.key.participant = messages.participant = m.sender;
-	let msg = {
+	const msg = {
 		...chatUpdate,
 		messages: [proto.WebMessageInfo.create(messages)].map((v) => ((v.conn = this), v)),
 		type: 'append',

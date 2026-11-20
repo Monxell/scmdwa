@@ -2,6 +2,8 @@ import moment from 'moment-timezone';
 import * as levelling from '../lib/levelling.js';
 import fs from 'fs';
 
+let menuImageCache = null;
+
 const handler = async (m, { conn, usedPrefix: _p, command, isOwner, args }) => {
 	const allTags = {
 		main: 'Main Menu',
@@ -11,6 +13,7 @@ const handler = async (m, { conn, usedPrefix: _p, command, isOwner, args }) => {
 		sticker: 'Sticker Menu',
 		tools: 'Tools Menu',
 		rpg: 'Rpg Menu',
+		guild: 'Guild Menu',
 		fun: 'Fun Menu',
 		group: 'Group Menu',
 		xp: 'XP & Level Menu',
@@ -96,17 +99,17 @@ const handler = async (m, { conn, usedPrefix: _p, command, isOwner, args }) => {
 			defaultMenu.after,
 		].join('\n');
 
-		let { exp, limit, money, level, role, registered } = global.db.data.users[m.sender];
-		let { min, xp, max } = levelling.xpRange(level, global.multiplier);
-		let name = registered ? global.db.data.users[m.sender].name : conn.getName(m.sender);
-		let _uptime = process.uptime() * 1000;
-		let uptime = clockString(_uptime);
-		let totalreg = Object.keys(global.db.data.users).length;
-		let rtotalreg = Object.values(global.db.data.users).filter((user) => user.registered == true).length;
-		let d = new Date(new Date() + 3600000);
-		let locale = 'id-ID';
-		let week = d.toLocaleDateString(locale, { weekday: 'long' });
-		let date = d.toLocaleDateString(locale, {
+		const { exp, limit, level, role, registered } = global.db.data.users[m.sender];
+		const { min, xp, max } = levelling.xpRange(level, global.multiplier);
+		const name = registered ? global.db.data.users[m.sender].name : conn.getName(m.sender);
+		const _uptime = process.uptime() * 1000;
+		const uptime = clockString(_uptime);
+		const totalreg = Object.keys(global.db.data.users).length;
+		const rtotalreg = Object.values(global.db.data.users).filter((user) => user.registered == true).length;
+		const d = new Date(new Date() + 3600000);
+		const locale = 'id-ID';
+		const week = d.toLocaleDateString(locale, { weekday: 'long' });
+		const date = d.toLocaleDateString(locale, {
 			day: 'numeric',
 			month: 'long',
 			year: 'numeric',
@@ -124,7 +127,6 @@ const handler = async (m, { conn, usedPrefix: _p, command, isOwner, args }) => {
 			level,
 			limit,
 			name,
-			money,
 			week,
 			date,
 			totalreg,
@@ -136,7 +138,7 @@ const handler = async (m, { conn, usedPrefix: _p, command, isOwner, args }) => {
 		conn.sendButton(
 			m.chat,
 			{
-				image: fs.readFileSync('./media/menu.jpg'),
+				image: menuImageCache || (menuImageCache = fs.readFileSync('./media/menu.jpg')),
 				caption: style(text.replace(new RegExp(`%(${Object.keys(replace).sort((a, b) => b.length - a.length).join`|`})`, 'g'), (_, name) => '' + replace[name])),
 				footer: global.namebot,
 				buttons: [
@@ -210,9 +212,9 @@ function style(text, style = 1) {
 }
 
 function clockString(ms) {
-	let h = isNaN(ms) ? '--' : Math.floor(ms / 3600000);
-	let m = isNaN(ms) ? '--' : Math.floor(ms / 60000) % 60;
-	let s = isNaN(ms) ? '--' : Math.floor(ms / 1000) % 60;
+	const h = isNaN(ms) ? '--' : Math.floor(ms / 3600000);
+	const m = isNaN(ms) ? '--' : Math.floor(ms / 60000) % 60;
+	const s = isNaN(ms) ? '--' : Math.floor(ms / 1000) % 60;
 	return [h, m, s].map((v) => v.toString().padStart(2, 0)).join(':');
 }
 

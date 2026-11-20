@@ -4,3 +4,11 @@ sessions
 *.zip
 database.json
 push.sh
+data
+tmp
+backup
+.opencode
+recordings
+.env
+*.log
+.DS_Store

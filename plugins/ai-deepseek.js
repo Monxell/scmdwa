@@ -1,10 +1,11 @@
-let handler = async (m, { text, usedPrefix, command }) => {
+const handler = async (m, { conn, text, usedPrefix, command }) => {
 	const input = m.quoted ? m.quoted.text : text;
 	if (!input) throw `Masukkan pertanyaan atau perintah!\n\nContoh:\n${usedPrefix + command} apa itu AI`;
 
 	if (!conn.deepseek) conn.deepseek = {};
 	if (!conn.deepseek[m.sender]) conn.deepseek[m.sender] = [];
 	conn.deepseek[m.sender].push({ role: 'user', content: input });
+	if (conn.deepseek[m.sender].length > 20) conn.deepseek[m.sender] = conn.deepseek[m.sender].slice(-20);
 
 	try {
 		const res = await deepinfra('deepseek-ai/DeepSeek-V3.2', conn.deepseek[m.sender]);
@@ -37,16 +38,16 @@ export async function deepinfra(model, history) {
 				messages: history,
 			}),
 		});
-		if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+		if (!res.ok) throw `HTTP Error ${res.status}`;
 		const data = await res.json();
 
-		let teks = [];
-		for (let out of data?.choices || []) {
+		const teks = [];
+		for (const out of data?.choices || []) {
 			if (out.message?.content) teks.push(out.message.content);
 		}
 
 		return teks.join('\n');
 	} catch (e) {
-		throw new Error('Error' + e?.message);
+		throw 'Error' + (e?.message || e);
 	}
 }

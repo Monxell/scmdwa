@@ -1,6 +1,6 @@
 import { delay } from 'baileys';
 
-let handler = async (m, { text }) => {
+const handler = async (m, { text }) => {
 	const nominal = parseInt(text);
 	if (!nominal) throw 'Jumlahnya berapa?';
 	if (nominal < 1000) throw 'Minimal 1.000 ya.';
@@ -34,7 +34,9 @@ let handler = async (m, { text }) => {
 	);
 
 	let status = '';
-	while (status !== 'completed') {
+	let attempts = 0;
+	while (status !== 'completed' && attempts < 60) {
+		attempts++;
 		if (new Date() >= expiredAt) {
 			await conn.sendMessage(m.chat, { delete: sQris.key });
 			return m.reply('⚠️ QRIS sudah *expired*, silakan buat ulang.');
@@ -73,26 +75,26 @@ async function createQris(project, apikey, amount) {
 				api_key: apikey,
 			}),
 		});
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		if (!res.ok) throw `HTTP ${res.status}`;
 		const data = await res.json();
 
-		if (!data?.payment) throw new Error('Gagal membuat QRIS.');
+		if (!data?.payment) throw 'Gagal membuat QRIS.';
 
 		return data.payment;
 	} catch (e) {
-		throw new Error('Gagal membuat QRIS: ' + e.message);
+		throw 'Gagal membuat QRIS: ' + (e?.message || e);
 	}
 }
 
 async function checkStatus(project, apikey, orderId, amount) {
 	try {
 		const res = await fetch(`https://app.pakasir.com/api/transactiondetail?project=${project}&amount=${amount}&order_id=${orderId}&api_key=${apikey}`);
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		if (!res.ok) throw `HTTP ${res.status}`;
 
 		const data = await res.json();
 
 		return data?.transaction;
 	} catch (e) {
-		throw new Error('Gagal mengecek status QRIS: ' + e.message);
+		throw 'Gagal mengecek status QRIS: ' + (e?.message || e);
 	}
 }
